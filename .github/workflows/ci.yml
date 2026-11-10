@@ -15,11 +15,62 @@ env:
   GENERATE_DEPLOY: 'true'
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      c0: ${{ steps.diff.outputs.c0 }}
+      c1: ${{ steps.diff.outputs.c1 }}
+      c2: ${{ steps.diff.outputs.c2 }}
+      c3: ${{ steps.diff.outputs.c3 }}
+      c4: ${{ steps.diff.outputs.c4 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed paths
+        id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PATTERNS: '{"c0": ["services/svc-a/**/*", "libs/shared/**/*"], "c1": ["services/svc-b/**/*", "libs/shared/**/*"], "c2": ["services/svc-c/**/*"], "c3": ["services/**/*", "libs/**/*"], "c4": ["libs/shared/**/*"]}'
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+
+          def rx(p):
+              out, i = "", 0
+              while i < len(p):
+                  if p.startswith("**/", i):
+                      out, i = out + "(?:.*/)?", i + 3
+                  elif p.startswith("**", i):
+                      out, i = out + ".*", i + 2
+                  elif p[i] == "*":
+                      out, i = out + "[^/]*", i + 1
+                  elif p[i] == "?":
+                      out, i = out + "[^/]", i + 1
+                  else:
+                      out, i = out + re.escape(p[i]), i + 1
+              return re.compile("^" + out + "$")
+
+          base = os.environ.get("BASE_SHA", "")
+          changed = None
+          if base and set(base) != {"0"}:
+              done = subprocess.run(["git", "diff", "--name-only", base, "HEAD"], capture_output=True, text=True)
+              if done.returncode == 0:
+                  changed = done.stdout.splitlines()
+          lines = []
+          for key, patterns in json.loads(os.environ["PATTERNS"]).items():
+              hit = changed is None or any(rx(p).match(f) for p in patterns for f in changed)
+              lines.append(key + "=" + ("true" if hit else "false"))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("\n".join(lines) + "\n")
+          PY
+
   lint-shared:
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.c4 == 'true' }}
     container:
       image: python:3.12-alpine
-    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,10 +79,10 @@ jobs:
 
   shared-contract-check:
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() && !failure() && (needs.detect-changes.outputs.c4 == 'true') }}
     container:
       image: python:3.12-alpine
-    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
-    needs: lint-shared
+    needs: [lint-shared, detect-changes]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -40,10 +91,10 @@ jobs:
 
   test-svc-a:
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() && !failure() && (needs.detect-changes.outputs.c0 == 'true') }}
     container:
       image: python:3.12-alpine
-    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
-    needs: shared-contract-check
+    needs: [shared-contract-check, detect-changes]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -52,10 +103,10 @@ jobs:
 
   test-svc-b:
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() && !failure() && (needs.detect-changes.outputs.c1 == 'true') }}
     container:
       image: python:3.12-alpine
-    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
-    needs: shared-contract-check
+    needs: [shared-contract-check, detect-changes]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -64,10 +115,10 @@ jobs:
 
   test-svc-c:
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() && !failure() && (needs.detect-changes.outputs.c2 == 'true') }}
     container:
       image: python:3.12-alpine
-    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
-    needs: shared-contract-check
+    needs: [shared-contract-check, detect-changes]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -76,10 +127,10 @@ jobs:
 
   build-svc-a:
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() && !failure() && (needs.detect-changes.outputs.c0 == 'true') }}
     container:
       image: python:3.12-alpine
-    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
-    needs: test-svc-a
+    needs: [test-svc-a, detect-changes]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -96,10 +147,10 @@ jobs:
 
   build-svc-b:
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() && !failure() && (needs.detect-changes.outputs.c1 == 'true') }}
     container:
       image: python:3.12-alpine
-    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
-    needs: test-svc-b
+    needs: [test-svc-b, detect-changes]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -116,10 +167,10 @@ jobs:
 
   build-svc-c:
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() && !failure() && (needs.detect-changes.outputs.c2 == 'true') }}
     container:
       image: python:3.12-alpine
-    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
-    needs: test-svc-c
+    needs: [test-svc-c, detect-changes]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -136,13 +187,14 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() && !failure() && (needs.detect-changes.outputs.c3 == 'true') }}
     container:
       image: python:3.12-alpine
-    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
     needs:
       - build-svc-a
       - build-svc-b
       - build-svc-c
+      - detect-changes
     steps:
 
 
@@ -174,6 +226,7 @@ jobs:
 
   generate-children:
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() && !failure() }}
     container:
       image: python:3.12-alpine
     needs: integration
