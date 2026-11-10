@@ -1,0 +1,93 @@
+name: review-apps
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'schedule' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build
+        run: |
+          mkdir -p public
+          cp -r app/. public/
+          echo "<p>built from $GITHUB_REF_NAME at ${GITHUB_SHA::8}</p>" >> public/index.html
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            public/
+          if-no-files-found: warn
+
+  deploy_review:
+    runs-on: ubuntu-latest
+    environment:
+      name: "review/${{ github.head_ref || github.ref_name }}"
+      url: "https://${{ steps.envslug.outputs.slug }}.review.example.test"
+    # MIGRATION-ACTION-REQUIRED: the environment name uses the branch name; GitLab used a lowercase slug of it.
+    # MIGRATION-ACTION-REQUIRED: environment 'auto_stop_in' has no native GitHub Actions equivalent (no-native-equivalent); the environment is not auto-stopped.
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: build
+    steps:
+      - id: envslug
+        name: Compute environment slug
+        env:
+          REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          slug=$(echo "$REF" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g;s/^-*//;s/-*$//' | cut -c1-63)
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifacts from build
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: public
+      - name: Deploy
+        run: |
+          echo "Deploying review app for $GITHUB_HEAD_REF"
+          ls public
+
+  deploy_main:
+    runs-on: ubuntu-latest
+    environment:
+      name: preview
+      url: https://preview.review.example.test
+    if: ${{ github.ref_name == github.event.repository.default_branch }}
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifacts from build
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: public
+      - name: Deploy main
+        run: echo "Deploying main to the shared preview environment"
+
+  cleanup-stale-environments:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' }}
+    steps:
+
+      - name: Download artifacts from build
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: public
+      - name: Cleanup
+        run: echo "stale environments need an administration token"
