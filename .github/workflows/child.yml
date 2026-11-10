@@ -1,0 +1,61 @@
+# FILE: .github/workflows/child.yml
+name: child
+
+on:
+  workflow_call:
+    inputs:
+      items:
+        description: JSON array of the items the generator walked
+        type: string
+        required: true
+      GENERATE_DEPLOY:
+        type: string
+        default: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  child-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        item: ${{ fromJSON(inputs.items) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: "child-test"
+        env:
+          ITEM: ${{ matrix.item }}
+        run: |
+          python3 -m unittest discover -s services/"$ITEM"
+  child-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ["linux", "windows-sim"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: "child-compat"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          echo "compat check on $PLATFORM"
+  child-package:
+    needs: [child-test, child-compat]
+    if: ${{ inputs.GENERATE_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "child-package"
+        env:
+          ITEMS: ${{ join(fromJSON(inputs.items), ' ') }}
+        run: |
+          echo "packaging $ITEMS"
+  nested-run:
+    needs: [child-package]
+    if: ${{ !cancelled() && !failure() }}
+    uses: ./.github/workflows/grandchild.yml
+    with:
+      items: ${{ inputs.items }}

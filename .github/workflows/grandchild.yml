@@ -1,0 +1,28 @@
+# FILE: .github/workflows/grandchild.yml
+name: grandchild
+
+on:
+  workflow_call:
+    inputs:
+      items:
+        description: JSON array of the items the generator walked
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  grandchild:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        item: ${{ fromJSON(inputs.items) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: "grandchild"
+        env:
+          ITEM: ${{ matrix.item }}
+        run: |
+          echo "grandchild job for $ITEM"

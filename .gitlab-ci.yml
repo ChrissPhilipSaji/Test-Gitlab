@@ -1,0 +1,121 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+stages: [lint, test, build, integration, generate, dynamic]
+
+default:
+  image: python:3.12-alpine
+
+variables:
+  GENERATE_DEPLOY: "true"
+
+.changes-a:
+  rules:
+    - changes: [services/svc-a/**/*, libs/shared/**/*]
+
+.changes-b:
+  rules:
+    - changes: [services/svc-b/**/*, libs/shared/**/*]
+
+.changes-c:
+  rules:
+    - changes: [services/svc-c/**/*]
+
+.changes-shared:
+  rules:
+    - changes: [libs/shared/**/*]
+
+lint:shared:
+  extends: .changes-shared
+  stage: lint
+  script:
+    - python3 -m py_compile libs/shared/shared.py
+
+shared-contract-check:
+  extends: .changes-shared
+  stage: lint
+  needs: []
+  script:
+    - echo "runs only when libs/shared changes"
+
+test:svc-a:
+  extends: .changes-a
+  stage: test
+  script:
+    - python3 -m unittest discover -s services/svc-a
+
+test:svc-b:
+  extends: .changes-b
+  stage: test
+  script:
+    - python3 -m unittest discover -s services/svc-b
+
+test:svc-c:
+  extends: .changes-c
+  stage: test
+  script:
+    - python3 -m unittest discover -s services/svc-c
+
+build:svc-a:
+  extends: .changes-a
+  stage: build
+  needs: [test:svc-a]
+  script:
+    - mkdir -p dist && echo svc-a > dist/svc-a.txt
+  artifacts:
+    paths: [dist/]
+
+build:svc-b:
+  extends: .changes-b
+  stage: build
+  needs: [test:svc-b]
+  script:
+    - mkdir -p dist && echo svc-b > dist/svc-b.txt
+  artifacts:
+    paths: [dist/]
+
+build:svc-c:
+  extends: .changes-c
+  stage: build
+  needs: [test:svc-c]
+  script:
+    - mkdir -p dist && echo svc-c > dist/svc-c.txt
+  artifacts:
+    paths: [dist/]
+
+integration:
+  stage: integration
+  needs:
+    - job: build:svc-a
+      optional: true
+    - job: build:svc-b
+      optional: true
+    - job: build:svc-c
+      optional: true
+  rules:
+    - changes: [services/**/*, libs/**/*]
+  script:
+    - ls dist || echo "no artifacts"
+    - echo "integration runs when any component changed"
+
+generate-children:
+  stage: generate
+  needs: []
+  script:
+    - python3 ci/generate.py --mode child > generated-child.yml
+    - cat generated-child.yml
+  artifacts:
+    paths: [generated-child.yml]
+
+run-children:
+  stage: dynamic
+  needs: [generate-children]
+  trigger:
+    include:
+      - artifact: generated-child.yml
+        job: generate-children
+    strategy: depend

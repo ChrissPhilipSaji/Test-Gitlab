@@ -1,0 +1,221 @@
+name: "EO-81096 - dynamic pipeline pass, run 2 (validators fixed)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      GENERATE_DEPLOY:
+        type: string
+        default: 'true'
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GENERATE_DEPLOY: 'true'
+
+jobs:
+  lint-shared:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Lint
+        run: python3 -m py_compile libs/shared/shared.py
+
+  shared-contract-check:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
+    needs: lint-shared
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Shared contract check
+        run: echo "runs only when libs/shared changes"
+
+  test-svc-a:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
+    needs: shared-contract-check
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Test svc-a
+        run: python3 -m unittest discover -s services/svc-a
+
+  test-svc-b:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
+    needs: shared-contract-check
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Test svc-b
+        run: python3 -m unittest discover -s services/svc-b
+
+  test-svc-c:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
+    needs: shared-contract-check
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Test svc-c
+        run: python3 -m unittest discover -s services/svc-c
+
+  build-svc-a:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
+    needs: test-svc-a
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build svc-a
+        run: mkdir -p dist && echo svc-a > dist/svc-a.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-svc-a-artifacts
+          path: |
+            dist/
+          if-no-files-found: warn
+
+  build-svc-b:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
+    needs: test-svc-b
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build svc-b
+        run: mkdir -p dist && echo svc-b > dist/svc-b.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-svc-b-artifacts
+          path: |
+            dist/
+          if-no-files-found: warn
+
+  build-svc-c:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
+    needs: test-svc-c
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build svc-c
+        run: mkdir -p dist && echo svc-c > dist/svc-c.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-svc-c-artifacts
+          path: |
+            dist/
+          if-no-files-found: warn
+
+  integration:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    # MIGRATION-ACTION-REQUIRED: this job's 'rules:changes' condition has no GitHub Actions equivalent (manual-review-required) - the job runs unconditionally until a file/path check is added.
+    needs:
+      - build-svc-a
+      - build-svc-b
+      - build-svc-c
+    steps:
+
+
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download artifacts from build-svc-c
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-svc-c-artifacts
+          path: dist
+      - name: Download artifacts from build-svc-b
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-svc-b-artifacts
+          path: dist
+      - name: Download artifacts from build-svc-a
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-svc-a-artifacts
+          path: dist
+      - name: Integration
+        run: |
+          ls dist || echo "no artifacts"
+          echo "integration runs when any component changed"
+
+  generate-children:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+    needs: integration
+    outputs:
+      items: ${{ steps.items.outputs.items }}
+      GENERATE_DEPLOY: ${{ steps.items.outputs.GENERATE_DEPLOY }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download artifacts from build-svc-c
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-svc-c-artifacts
+          path: dist
+      - name: Download artifacts from build-svc-b
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-svc-b-artifacts
+          path: dist
+      - name: Download artifacts from build-svc-a
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-svc-a-artifacts
+          path: dist
+      - id: items
+        run: |
+          items=$(python3 - <<'PY'
+          import json, os
+          d = 'services'
+          print(json.dumps(sorted(x for x in os.listdir(d) if os.path.isdir(os.path.join(d, x)))))
+          PY
+          )
+          echo "items=$items" >> "$GITHUB_OUTPUT"
+          echo "GENERATE_DEPLOY=${GENERATE_DEPLOY:-true}" >> "$GITHUB_OUTPUT"
+
+  run-children:
+    # Reusable workflow built from 'ci/generate.py' (read at analysis). GitHub cannot create jobs at runtime.
+    needs: [generate-children]
+    uses: ./.github/workflows/child.yml
+    with:
+      items: ${{ needs.generate-children.outputs.items }}
+      GENERATE_DEPLOY: ${{ needs.generate-children.outputs.GENERATE_DEPLOY }}
