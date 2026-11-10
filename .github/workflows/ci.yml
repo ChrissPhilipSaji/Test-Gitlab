@@ -266,6 +266,7 @@ jobs:
           echo "GENERATE_DEPLOY=${GENERATE_DEPLOY:-true}" >> "$GITHUB_OUTPUT"
 
   run-children:
+    if: ${{ !cancelled() && !failure() }}
     # Reusable workflow built from 'ci/generate.py' (read at analysis). GitHub cannot create jobs at runtime.
     needs: [generate-children]
     uses: ./.github/workflows/child.yml
